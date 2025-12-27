@@ -1,3 +1,6 @@
 yt-dlp
 customtkinter
 packaging
+flask
+requests
+gunicorn
